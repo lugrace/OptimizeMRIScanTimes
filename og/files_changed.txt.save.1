@@ -1,0 +1,24 @@
+These are the files that I changed the paths from /mnt/raid5/david to /mnt/data/grace
+
+dopamine/recon_env/reinforce.py:32:logdir = os.path.join('/mnt/raid5/davidyzeng/policy',currstr)
+dopamine/recon_env/generate_image.py:16:data_file = '/mnt/raid5/davidyzeng/unroll_data_raw/pytorch_data.h5'
+run_dqn.sh:4:python -um dopamine.atari.train --agent_name=dqn --base_dir=/mnt/raid5/davidyzeng/dopamine/recon$date_str --gin_files='dopamine/agents/dqn/configs/dqn.gin'
+val_dqn.sh:6:python -um dopamine.atari.train --agent_name=dqn --base_dir=/mnt/raid5/davidyzeng/dopamine/recon$date_str --gin_files='dopamine/agents/dqn/configs/dqn.gin'
+val_rainbow.sh:6:python -um dopamine.atari.train --agent_name=rainbow --base_dir=/mnt/raid5/davidyzeng/dopamine/rainbow$date_str --gin_files='dopamine/agents/rainbow/configs/rainbow.gin'
+
+and then also run_rainbow.sh
+
+also changed python to python3 in run_rainbow.sh
+
+also commented out bartwrap in recon_env.py
+
+also added the second sys path append in recon_env.py
+
+now we can't open the pytorch_data.h5 file in /home/davidyzeng/raid5/unroll_data/raw so I'm changing the filepath to the one in 
+my home directory
+dopamine/recon_env/recon_env.py:139:    data_file = '/home/davidyzeng/raid5/unroll_data_raw/pytorch_data.h5'
+Binary file dopamine/recon_env/__pycache__/recon_env.cpython-36.pyc matches
+dopamine/recon_env/apriori.py:9:    data_file = '/home/davidyzeng/raid5/unroll_data_raw/pytorch_data.h5'
+dopamine/recon_env/apriori.py:46:data_file = '/home/davidyzeng/raid5/unroll_data_raw/pytorch_data.h5'
+
+--> /home_local/grace/pytorch_data.h5
