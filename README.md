@@ -10,8 +10,8 @@ In particular, the specific image acquisition methods we tested were:
 
 Similarly, the image quality metrics used were:
     - L2 Reward (Euclidean difference between ground-truth and reconstructed image)
-    - Perceptual Loss Function (using feature maps from a pretrained VGG network)
+    - Perceptual Reward Function (using feature maps from a pretrained VGG network)
     - Discriminator Reward (deep learning network for proof-of-concept)
-    - Adversial/Perceptual Combination (increases both high frequency and textural details)
+    - Visual Reward Function (Adversial/Perceptual Combination (increases both high frequency and textural details))
 
 The model was also tested over several different networks with 3, 5, and 7 2D convolutional layers. Overall, we increased the accuracy of reconstructed images by over 40% after implementing deep-learning-based acquisition and perceptual reward function using a pre-trained VGG network.
