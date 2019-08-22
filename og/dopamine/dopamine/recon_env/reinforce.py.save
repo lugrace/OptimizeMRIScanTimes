@@ -1,0 +1,152 @@
+
+import argparse
+#import gym
+import numpy as np
+from itertools import count
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from torch.distributions import Categorical
+
+import datetime
+import os
+from tensorboardX import SummaryWriter
+
+import recon_env
+
+
+parser = argparse.ArgumentParser(description='PyTorch REINFORCE example')
+parser.add_argument('--gamma', type=float, default=0.99, metavar='G',
+                    help='discount factor (default: 0.99)')
+parser.add_argument('--seed', type=int, default=543, metavar='N',
+                    help='random seed (default: 543)')
+parser.add_argument('--render', action='store_true',
+                    help='render the environment')
+parser.add_argument('--log-interval', type=int, default=300, metavar='N',
+                    help='interval between training status logs (default: 10)')
+args = parser.parse_args()
+
+now = datetime.datetime.now()
+currstr = now.strftime("%Y%m%d_%H%M")
+logdir = os.path.join('/mnt/data/grace/policy',currstr)
+writer = SummaryWriter(log_dir=logdir)
+
+recon_func = recon_env.unrolled_recon()
+reward_func = recon_env.L2_reward()
+
+env = recon_env.recon_env(recon_func, reward_func)
+#env.seed(args.seed)
+#torch.manual_seed(args.seed)
+
+
+class Policy(nn.Module):
+    def __init__(self):
+        super(Policy, self).__init__()
+        self.affine1 = nn.Linear(131072, 2048)
+        self.affine2 = nn.Linear(2048, 2048)
+        self.affine3 = nn.Linear(2048, 256)
+
+        self.saved_log_probs = []
+        self.rewards = []
+
+    def forward(self, x):
+        x = x.view(x.size(0), -1)
+        x = F.relu(self.affine1(x))
+        x = F.relu(self.affine2(x))
+        action_scores = self.affine3(x)
+        return F.softmax(action_scores, dim=1)
+
+
+policy = Policy().to('cuda:1')
+optimizer = optim.RMSprop(policy.parameters(), lr=1e-4)
+eps = np.finfo(np.float32).eps.item()
+
+
+def select_action(state, info):
+    #state = torch.from_numpy(state).float().unsqueeze(0).cuda()
+    probs = policy(state)
+    probs = torch.squeeze(probs)
+    m = Categorical(probs)
+    found = False
+    action = None
+    for _ in range(256):
+        action = m.sample()
+        if info[action.item()] == 0: #action line has not been sampled, so keep it
+            found = True
+            break
+    if not found: # if an unsampled line was not found, take the greedy line
+        _, idx = torch.sort(probs,descending=True)
+        for i in idx:
+            if info[i] == 0:
+                action = i
+    policy.saved_log_probs.append(m.log_prob(action))
+    return action.item()
+
+
+def finish_episode():
+    R = 0
+    policy_loss = []
+    rewards = []
+    for r in policy.rewards[::-1]:
+        R = r + args.gamma * R
+        rewards.insert(0, R)
+    rewards = torch.tensor(rewards).cuda()
+    rewards = (rewards - rewards.mean()) / (rewards.std() + eps)
+    for log_prob, reward in zip(policy.saved_log_probs, rewards):
+        policy_loss.append(-log_prob * reward)
+    optimizer.zero_grad()
+    #policy_loss = torch.cat(policy_loss).sum()
+    policy_loss = torch.stack(policy_loss).sum()
+    policy_loss.backward()
+    optimizer.step()
+    del policy.rewards[:]
+    del policy.saved_log_probs[:]
+
+def finish_log(t, i_episode, state):
+    print(i_episode,t)
+    Y_hat_im = torch.norm(state[0,:,:,:],p=2,dim=0)
+    Y_im = torch.norm(env.get_ref_img()[0,:,:,:],p=2,dim=0)
+    Y_hat_diff = torch.abs(Y_hat_im-Y_im)
+    final_mask = torch.squeeze(env.get_mask())*torch.max(Y_im)
+    out_im = torch.cat([Y_hat_im.data,Y_im.data,Y_hat_diff.data,final_mask],dim=1)
+    out_im = torch.div(out_im,torch.max(out_im))
+
+    writer.add_scalar('episodes/durations',t+1,global_step=i_episode)
+    writer.add_scalar('episodes/final_reward',env.get_curr_reward().item(),global_step=i_episode)
+    writer.add_image('out/final_im',out_im,global_step=i_episode)
+    del Y_hat_im, Y_im, Y_hat_diff, out_im, final_mask
+
+def save_network(episode):
+    state = {
+            'episode': episode,
+            'state_dict': policy.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            }
+    tmp_name = '%d.ckpt' % (int(episode))
+    save_filename = os.path.join(logdir, tmp_name)
+    print('Saving %s' % save_filename)
+    torch.save(state, save_filename)
+
+def main():
+    for i_episode in count(1):
+        state = env.reset()
+        info = np.zeros((256,))
+        for t in range(10000):  # Don't infinite loop while learning
+            action = select_action(state,info)
+            state, reward, done, info = env.step(action)
+            #print(t,'%0.3e' % (reward.item()),'%+03d' %(action-128))
+            if args.render:
+                env.render()
+            policy.rewards.append(reward)
+            if done:
+                break
+
+        finish_log(t, i_episode, state)
+        finish_episode()
+        if not i_episode % args.log_interval:
+            save_network(i_episode)
+
+if __name__ == '__main__':
+    main()
